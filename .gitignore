@@ -1,0 +1,4 @@
+data/iphone/
+__pycache__/
+data/phone/
+venv/
