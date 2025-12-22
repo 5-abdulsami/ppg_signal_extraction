@@ -35,12 +35,14 @@ def plot(x):
     fig = plt.figure(figsize=(13, 6))
     ax = plt.axes()
     ax.plot(list(range(len(x))), x)
+    plt.savefig('../data/output/ppg_waveform.png') 
+    print("Figure saved to ../data/output/ppg_waveform.png")
     plt.show()
 
 def get_signal_from(device):
     '''
     Return PPG signal as a sequence of mean intensities from the sequence of
-    images that were captured by a device (NoIR camera or phone camera)
+    images that were captured by phone camera
     '''
     if device == 'noir':
         length = len(os.listdir('../data/recording'))
