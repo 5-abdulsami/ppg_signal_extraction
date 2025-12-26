@@ -1,6 +1,6 @@
 #!/usr/bin/python3
-# heart-rate-calculator.py - Calculates heart rate from saved PPG measurements
-# Usage: python3 heart-rate-calculator.py [measurement_id]
+# calculate-hr.py - Calculates heart rate from saved PPG measurements
+# Usage: python3 calculate-hr.py [measurement_id]
 #   If measurement_id is provided, calculates HR for that specific measurement
 #   Otherwise, calculates HR for all measurements in the CSV
 
@@ -235,14 +235,13 @@ def analyze_measurement(df, measurement_id=None):
         
         # Get metadata
         measurement_id_val = row.get('id', idx)
-        device = row.get('device', 'unknown')
         sys_bp = row.get('sys', 'N/A')
         dia_bp = row.get('dia', 'N/A')
         ref_hr = row.get('hr', 'N/A')
         
         print(f"\n{'='*60}")
         print(f"Analyzing Measurement ID: {measurement_id_val}")
-        print(f"Device: {device}, SYS: {sys_bp}, DIA: {dia_bp}, Reference HR: {ref_hr}")
+        print(f"SYS: {sys_bp}, DIA: {dia_bp}, Reference HR: {ref_hr}")
         
         # Preprocess signal
         processed_signal = preprocess_signal(signal, sampling_rate=30)
@@ -285,7 +284,6 @@ def analyze_measurement(df, measurement_id=None):
             # Store results
             results.append({
                 'id': measurement_id_val,
-                'device': device,
                 'time_domain_hr': hr_time,
                 'freq_domain_hr': hr_freq,
                 'average_hr': hr_avg,
@@ -301,12 +299,12 @@ def analyze_measurement(df, measurement_id=None):
         print(f"\n{'='*60}")
         print("SUMMARY OF ALL MEASUREMENTS")
         print(f"{'='*60}")
-        print(f"{'ID':<5} {'Device':<15} {'Avg HR':<10} {'Ref HR':<10} {'Peaks':<10}")
-        print(f"{'-'*60}")
+        print(f"{'ID':<5} {'Avg HR':<10} {'Ref HR':<10} {'Peaks':<10}")
+        print(f"{'-'*45}")
         
         for res in results:
             ref_str = f"{res['reference_hr']:.1f}" if res['reference_hr'] else 'N/A'
-            print(f"{res['id']:<5} {res['device'][:15]:<15} {res['average_hr']:<10.1f} "
+            print(f"{res['id']:<5} {res['average_hr']:<10.1f} "
                   f"{ref_str:<10} {res['num_peaks']:<10}")
     
     return results
