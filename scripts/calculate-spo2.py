@@ -20,7 +20,7 @@ def get_ac_dc(signal, sampling_rate=30):
     return ac, dc
 
 def main():
-    path = '../data/df-ac-measurements-2.csv'
+    path = '../data/ppg-measurements.csv'
     if not os.path.exists(path):
         print("CSV file not found.")
         return

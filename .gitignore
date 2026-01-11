@@ -1,4 +1,5 @@
 data/iphone/
 __pycache__/
 data/phone/
+data/frames/
 venv/

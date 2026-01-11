@@ -1,100 +1,80 @@
 #!/usr/bin/python3
-# record-ppg.py - Reads a sequence of images and stores it's PPG signal to:
-#   ../data/df-ac-measurements.csv
+# record-ppg.py - Combined HR and SpO2 signal extraction
 
 from PIL import Image
 import numpy as np
-from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 import time
-import os, sys, os.path, shutil
-import csv
+import os, csv
 
-def get_image(image_path):
-    '''
-    Return a numpy array of red image values so that we can access values[x][y]
-    '''
+def get_image_rgb(image_path):
     image = Image.open(image_path)
-    width, height = image.size
     red, green, blue = image.split()
-    red_values = list(red.getdata())
-    return np.array(red_values).reshape((width, height))
+    r_mean = np.mean(np.array(red))
+    b_mean = np.mean(np.array(blue))
+    return r_mean, b_mean
 
-def get_mean_intensity(image_path):
-    '''
-    Return mean intensity of an image values
-    '''
-    image = get_image(image_path)
-    return np.mean(image)
-
-def plot(x):
-    '''
-    Plot the signal
-    TODO: Vertical flip and plot a normal PPG signal instead of an inverted one
-    '''
-    fig = plt.figure(figsize=(13, 6))
-    ax = plt.axes()
-    ax.plot(list(range(len(x))), x)
-    plt.savefig('../data/output/ppg_waveform.png') 
-    print("Figure saved to ../data/output/ppg_waveform.png")
-    plt.show()
-
-def get_signal():
-    '''
-    Return PPG signal as a sequence of mean intensities from the sequence of
-    images that were captured by phone camera
-    '''
-    images = os.listdir('../data/phone/')
-    numbers = [image[3:][:-4] for image in images]
-    numbers = [int(n) for n in numbers]
-    numbers = sorted(numbers)
-    length = len(numbers)
-
-    x = []
+def get_signals():
+    images = os.listdir('../data/frames/')
+    # Ensures frames are processed in numerical order (out1, out2, etc.)
+    numbers = sorted([int(img[3:][:-4]) for img in images if img.endswith('.png')])
+    
+    r_signal, b_signal = [], []
     for n in numbers:
-        image_path = '../data/phone/out' + str(n) + '.png'
-        print('reading image: ' + image_path)
-        x.append(get_mean_intensity(image_path))
-    return x
+        image_path = f'../data/frames/out{n}.png'
+        print(f'Reading frame: {n}')
+        r, b = get_image_rgb(image_path)
+        r_signal.append(r)
+        b_signal.append(b)
+    return r_signal, b_signal
 
-def get_detrended(x):
-    length = len(x)
-    t = list(range(length))
-    t = np.array(t).reshape((-1, 1))
-    x = np.array(x)
-    model = LinearRegression()
-    model.fit(t, x)
+def save_plots(r_sig, b_sig, pid):
+    output_dir = '../data/output/waveforms'
+    os.makedirs(output_dir, exist_ok=True)
 
-    # calculate the trend (DC component)
-    model = LinearRegression().fit(t, x)
-    x_pred = model.predict(t)
-    trend = list(x_pred)
-    x = list(x)
-    detrended = [x[i] - trend[i] for i in range(length)]
-    return detrended
+    # Plot 1: Standard PPG (Red Channel) for Heart Rate Peaks
+    plt.figure(figsize=(13, 6))
+    plt.plot(r_sig, color='red', linewidth=1.5)
+    plt.title(f'PPG Red Channel (HR Analysis) - ID: {pid}')
+    plt.ylabel('Mean Intensity')
+    plt.xlabel('Frame Number')
+    plt.savefig(f'{output_dir}/ppg_hr_peaks_{pid}.png')
+    plt.close() # Close to save memory
+
+    # Plot 2: Dual Channel (Red vs Blue) for SpO2 Analysis
+    plt.figure(figsize=(13, 6))
+    plt.plot(r_sig, color='red', label='Red Channel')
+    plt.plot(b_sig, color='blue', label='Blue Channel')
+    plt.title(f'Dual Channel PPG (SpO2 Analysis) - ID: {pid}')
+    plt.legend()
+    plt.savefig(f'{output_dir}/ppg_spo2_dual_{pid}.png')
+    plt.show() # Shows the dual plot to the user
 
 if __name__ == "__main__":
-    x = get_signal()
-    plot(x)
+    r_sig, b_sig = get_signals()
+    
+    # Show a quick preview of the Red channel for verification
+    plt.plot(r_sig, color='red')
+    plt.title("Signal Preview (Close to continue)")
+    plt.show()
 
-    if input('Save it? (y/n): ') == 'y':
-        filename = '../data/df-ac-measurements.csv'
-        if os.stat(filename).st_size == 0:
-            # write header
-            with open(filename, 'a') as f:
-                writer = csv.writer(f)
-                writer.writerow(['id', 'date', 'sys', 'dia', 'hr'] \
-                    + ['x'+str(i) for i in range(len(x))])
+    if input('Save measurement? (y/n): ').lower() == 'y':
+        pid = input('Enter ID: ')
+        save_plots(r_sig, b_sig, pid)
 
+        filename = '../data/ppg-measurements.csv'
+        header = ['id', 'date', 'sys', 'dia', 'hr']
+        header += [f'rx{i}' for i in range(len(r_sig))]
+        header += [f'bx{i}' for i in range(len(b_sig))]
 
-        pid = input('ID: ')  # e.g. 0
+        if not os.path.exists(filename) or os.stat(filename).st_size == 0:
+            with open(filename, 'w') as f:
+                csv.writer(f).writerow(header)
+
         timestr = time.strftime("%Y-%m-%d-%H:%M:%S")
-        sys = input('SYS: ') # e.g. 116
-        dia = input('DIA: ') # e.g. 59
-        hr = input('HR: ')   # e.g. 55
+        sys, dia, ref_hr = input('SYS: '), input('DIA: '), input('Ref HR: ')
 
-        fields = [str(pid), timestr, str(sys), str(dia), str(hr)] \
-            + [str(elt) for elt in x]
+        row = [pid, timestr, sys, dia, ref_hr] + r_sig + b_sig
         with open(filename, 'a') as f:
-            writer = csv.writer(f)
-            writer.writerow(fields)
+            csv.writer(f).writerow(row)
+        print(f"Success: ID {pid} saved to {filename}")

@@ -12,7 +12,7 @@ from scipy.fft import fft, fftfreq
 import sys
 import os
 
-def load_measurements(filename='../data/df-ac-measurements.csv'):
+def load_measurements(filename='../data/ppg-measurements.csv'):
     """
     Load PPG measurements from CSV file
     """
@@ -224,7 +224,7 @@ def analyze_measurement(df, measurement_id=None):
     
     for idx, row in measurements.iterrows():
         # Extract signal data (columns starting with 'x')
-        signal_columns = [col for col in row.index if col.startswith('x')]
+        signal_columns = [col for col in row.index if col.startswith('rx')]
         
         if not signal_columns:
             print(f"Warning: No signal data found for measurement at index {idx}")
