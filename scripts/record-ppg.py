@@ -1,80 +1,241 @@
 #!/usr/bin/python3
-# record-ppg.py - Combined HR and SpO2 signal extraction
+# record-ppg.py
+# Extracts RGB PPG signals from fingertip video frames
+# Stores signals + metadata for HR / SpO2 / BP estimation
 
-from PIL import Image
-import numpy as np
-import matplotlib.pyplot as plt
+import csv
+import os
 import time
-import os, csv
 
+import matplotlib.pyplot as plt
+import numpy as np
+from PIL import Image
+
+FRAME_DIR = "../data/frames/"
+OUTPUT_DIR = "../data/output/waveforms"
+CSV_FILE = "../data/ppg-measurements.csv"
+
+
+# -------------------------------------------------------
+# Read frame and compute RGB mean intensity
+# -------------------------------------------------------
 def get_image_rgb(image_path):
     image = Image.open(image_path)
+
     red, green, blue = image.split()
+
     r_mean = np.mean(np.array(red))
+    g_mean = np.mean(np.array(green))
     b_mean = np.mean(np.array(blue))
-    return r_mean, b_mean
 
+    return r_mean, g_mean, b_mean
+
+
+# -------------------------------------------------------
+# Frame motion / brightness filtering
+# -------------------------------------------------------
+def is_valid_frame(current, previous, threshold=15):
+    """
+    Reject frames with sudden brightness jumps
+    (finger movement or pressure change)
+    """
+    if previous is None:
+        return True
+
+    diff = abs(current - previous)
+
+    if diff > threshold:
+        return False
+
+    return True
+
+
+# -------------------------------------------------------
+# Extract signals from all frames
+# -------------------------------------------------------
 def get_signals():
-    images = os.listdir('../data/frames/')
-    # Ensures frames are processed in numerical order (out1, out2, etc.)
-    numbers = sorted([int(img[3:][:-4]) for img in images if img.endswith('.png')])
-    
-    r_signal, b_signal = [], []
-    for n in numbers:
-        image_path = f'../data/frames/out{n}.png'
-        print(f'Reading frame: {n}')
-        r, b = get_image_rgb(image_path)
+
+    images = [img for img in os.listdir(FRAME_DIR) if img.endswith(".png")]
+
+    # Correct numerical sorting
+    images = sorted(images, key=lambda x: int(x[3:-4]))
+
+    r_signal = []
+    g_signal = []
+    b_signal = []
+
+    prev_brightness = None
+
+    for img in images:
+        image_path = os.path.join(FRAME_DIR, img)
+
+        r, g, b = get_image_rgb(image_path)
+
+        brightness = (r + g + b) / 3
+
+        if not is_valid_frame(brightness, prev_brightness):
+            print(f"Skipping noisy frame: {img}")
+            continue
+
+        prev_brightness = brightness
+
         r_signal.append(r)
+        g_signal.append(g)
         b_signal.append(b)
-    return r_signal, b_signal
 
-def save_plots(r_sig, b_sig, pid):
-    output_dir = '../data/output/waveforms'
-    os.makedirs(output_dir, exist_ok=True)
+        print(f"Processed frame: {img}")
 
-    # Plot 1: Standard PPG (Red Channel) for Heart Rate Peaks
+    return r_signal, g_signal, b_signal
+
+
+# -------------------------------------------------------
+# Compute AC/DC signal features
+# -------------------------------------------------------
+def compute_signal_features(signal):
+
+    signal = np.array(signal)
+
+    ac = np.std(signal)
+    dc = np.mean(signal)
+
+    ratio = ac / dc if dc != 0 else 0
+
+    return ac, dc, ratio
+
+
+# -------------------------------------------------------
+# Plot signals
+# -------------------------------------------------------
+def save_plots(r_sig, g_sig, b_sig, pid):
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    # GREEN channel PPG (best for HR)
     plt.figure(figsize=(13, 6))
-    plt.plot(r_sig, color='red', linewidth=1.5)
-    plt.title(f'PPG Red Channel (HR Analysis) - ID: {pid}')
-    plt.ylabel('Mean Intensity')
-    plt.xlabel('Frame Number')
-    plt.savefig(f'{output_dir}/ppg_hr_peaks_{pid}.png')
-    plt.close() # Close to save memory
+    plt.plot(g_sig, color="green", linewidth=1.5)
 
-    # Plot 2: Dual Channel (Red vs Blue) for SpO2 Analysis
+    plt.title(f"PPG Signal (Green Channel) - ID: {pid}")
+    plt.ylabel("Mean Intensity")
+    plt.xlabel("Frame Number")
+
+    plt.savefig(f"{OUTPUT_DIR}/ppg_green_{pid}.png")
+
+    plt.close()
+
+    # RGB comparison plot
     plt.figure(figsize=(13, 6))
-    plt.plot(r_sig, color='red', label='Red Channel')
-    plt.plot(b_sig, color='blue', label='Blue Channel')
-    plt.title(f'Dual Channel PPG (SpO2 Analysis) - ID: {pid}')
+
+    plt.plot(r_sig, color="red", label="Red")
+    plt.plot(g_sig, color="green", label="Green")
+    plt.plot(b_sig, color="blue", label="Blue")
+
+    plt.title(f"RGB PPG Channels - ID: {pid}")
+
     plt.legend()
-    plt.savefig(f'{output_dir}/ppg_spo2_dual_{pid}.png')
-    plt.show() # Shows the dual plot to the user
 
-if __name__ == "__main__":
-    r_sig, b_sig = get_signals()
-    
-    # Show a quick preview of the Red channel for verification
-    plt.plot(r_sig, color='red')
-    plt.title("Signal Preview (Close to continue)")
+    plt.savefig(f"{OUTPUT_DIR}/ppg_rgb_{pid}.png")
+
     plt.show()
 
-    if input('Save measurement? (y/n): ').lower() == 'y':
-        pid = input('Enter ID: ')
-        save_plots(r_sig, b_sig, pid)
 
-        filename = '../data/ppg-measurements.csv'
-        header = ['id', 'date', 'sys', 'dia', 'hr']
-        header += [f'rx{i}' for i in range(len(r_sig))]
-        header += [f'bx{i}' for i in range(len(b_sig))]
+# -------------------------------------------------------
+# Signal quality check
+# -------------------------------------------------------
+def signal_quality_check(signal):
 
-        if not os.path.exists(filename) or os.stat(filename).st_size == 0:
-            with open(filename, 'w') as f:
-                csv.writer(f).writerow(header)
+    signal = np.array(signal)
 
-        timestr = time.strftime("%Y-%m-%d-%H:%M:%S")
-        sys, dia, ref_hr = input('SYS: '), input('DIA: '), input('Ref HR: ')
+    variance = np.std(signal)
 
-        row = [pid, timestr, sys, dia, ref_hr] + r_sig + b_sig
-        with open(filename, 'a') as f:
-            csv.writer(f).writerow(row)
-        print(f"Success: ID {pid} saved to {filename}")
+    if variance < 0.5:
+        print("Warning: Low signal variance. Possible poor finger contact.")
+
+    return variance
+
+
+# -------------------------------------------------------
+# Main pipeline
+# -------------------------------------------------------
+if __name__ == "__main__":
+    print("\nExtracting PPG signals from frames...\n")
+
+    r_sig, g_sig, b_sig = get_signals()
+
+    print("\nFrames processed:", len(g_sig))
+
+    if len(g_sig) < 100:
+        print("Warning: Signal too short for reliable analysis.")
+
+    # Preview Green PPG
+    plt.plot(g_sig, color="green")
+    plt.title("PPG Signal Preview (Green Channel)")
+    plt.show()
+
+    # Signal quality check
+    signal_quality_check(g_sig)
+
+    if input("\nSave measurement? (y/n): ").lower() != "y":
+        exit()
+
+    pid = input("Enter ID: ")
+
+    save_plots(r_sig, g_sig, b_sig, pid)
+
+    # ---------------------------------------
+    # Compute AC/DC features
+    # ---------------------------------------
+
+    ac_r, dc_r, ratio_r = compute_signal_features(r_sig)
+    ac_g, dc_g, ratio_g = compute_signal_features(g_sig)
+
+    print("\nSignal Features:")
+    print("Red AC/DC:", ratio_r)
+    print("Green AC/DC:", ratio_g)
+
+    # ---------------------------------------
+    # Prepare CSV header
+    # ---------------------------------------
+
+    header = ["id", "date", "sys", "dia", "hr"]
+
+    header += ["ac_red", "dc_red", "ac_green", "dc_green"]
+
+    header += [f"rx{i}" for i in range(len(r_sig))]
+    header += [f"gx{i}" for i in range(len(g_sig))]
+    header += [f"bx{i}" for i in range(len(b_sig))]
+
+    if not os.path.exists(CSV_FILE) or os.stat(CSV_FILE).st_size == 0:
+        with open(CSV_FILE, "w") as f:
+            csv.writer(f).writerow(header)
+
+    # ---------------------------------------
+    # Reference measurements
+    # ---------------------------------------
+
+    timestr = time.strftime("%Y-%m-%d-%H:%M:%S")
+
+    sys = input("SYS BP: ")
+    dia = input("DIA BP: ")
+    ref_hr = input("Reference HR: ")
+
+    row = (
+        [
+            pid,
+            timestr,
+            sys,
+            dia,
+            ref_hr,
+            ac_r,
+            dc_r,
+            ac_g,
+            dc_g,
+        ]
+        + r_sig
+        + g_sig
+        + b_sig
+    )
+
+    with open(CSV_FILE, "a") as f:
+        csv.writer(f).writerow(row)
+
+    print(f"\nSuccess: Measurement {pid} saved to {CSV_FILE}")
