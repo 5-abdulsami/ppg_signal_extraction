@@ -4,4 +4,4 @@
 
 mkdir -p ../data/frames
 
-ffmpeg -i ../data/recordings/haseeb-recording-3.mp4 -vf "fps=30,scale=320:-1" -q:v 2 ../data/frames/out%d.png # output one image after every 33.3ms
+ffmpeg -i ../data/recordings/sami-mar-7-2.mp4 -vf "fps=30,scale=320:-1" -q:v 2 ../data/frames/out%d.png # output one image after every 33.3ms
